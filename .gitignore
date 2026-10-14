@@ -12,6 +12,9 @@ data/
 .env
 bin/
 resources/dist/
+# 地理数据库（安装期从官方 meta-rules-dat 下载，不入库）
+resources/Country.mmdb
+resources/geosite.dat
 resources/proxies/
 resources/rules/
 *.log

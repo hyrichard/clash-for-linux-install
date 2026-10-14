@@ -689,6 +689,10 @@ _install_initialize() {
     done
     [ -f "$CLASH_CONFIG_BASE" ] || install -m 0600 /dev/null "$CLASH_CONFIG_BASE" || return 1
     prepare_zip kernel yq || return 1
+    # 地理数据库从官方 meta-rules-dat 获取；失败不阻断安装，内核首启时会自行补全。
+    if typeset -f install_geodata >/dev/null 2>&1; then
+        install_geodata || _install_ui_warn '地理数据库下载失败，内核首次启动时会自动获取'
+    fi
     # 在写入配置、注册服务之前撤销未初始化凭据；后续丢失 .env 不能按空安装删除。
     command rm -f -- "$CLASHCTL_HOME/.clashctl-uninitialized" || return 1
     [ -f "$CLASHCTL_HOME/.env" ] || install -m 0600 "$CLASHCTL_HOME/.env.example" "$CLASHCTL_HOME/.env" || return 1

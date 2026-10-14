@@ -74,6 +74,14 @@ gh_proxy_url() {
     fi
 }
 
+# Web 面板前端：zashboard（默认）/ metacubexd / none（关闭）。非法值回退默认。
+_ui_frontend() {
+    case ${CLASHCTL_UI_FRONTEND:-zashboard} in
+    zashboard | metacubexd | none) printf '%s\n' "${CLASHCTL_UI_FRONTEND:-zashboard}" ;;
+    *) printf 'zashboard\n' ;;
+    esac
+}
+
 # 订阅入口在 Bash 中执行；终端启用行编辑，管道保留普通读取方式。
 _read_subscription_url() {
     local _subscription_input=''

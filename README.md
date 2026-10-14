@@ -73,7 +73,7 @@ Commands:
   start                 仅启动内核
   stop                  仅停止内核
   status                内核状态
-  ui                    面板地址
+  ui                    面板地址（ui switch 切换前端）
   sub                   订阅管理
   node                  节点切换
   tun                   Tun 模式

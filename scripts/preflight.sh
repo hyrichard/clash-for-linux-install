@@ -16,6 +16,12 @@ DEFAULT_VERSION_MIHOMO=v1.19.27
 DEFAULT_VERSION_YQ=v4.53.3
 DEFAULT_VERSION_SUBCONVERTER=v0.9.9
 DEFAULT_VERSION_UI=v3.20.0
+DEFAULT_VERSION_METACUBEXD=v1.273.1
+
+# 地理数据库（GeoIP / GeoSite）取自 mihomo 官方仓库 meta-rules-dat 的 latest 发布。
+# 文件名与内核在 -d 工作目录中查找的名称保持一致（Country.mmdb / geosite.dat）。
+GEODATA_MMDB_URL=https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb
+GEODATA_SITE_URL=https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat
 
 ZIP_BASE_DIR="${CLASHCTL_SRC}/archives"
 
@@ -108,6 +114,7 @@ _resolve_version() {
     VERSION_YQ) local_version=$DEFAULT_VERSION_YQ ;;
     VERSION_SUBCONVERTER) local_version=$DEFAULT_VERSION_SUBCONVERTER ;;
     VERSION_UI) local_version=$DEFAULT_VERSION_UI ;;
+    VERSION_METACUBEXD) local_version=$DEFAULT_VERSION_METACUBEXD ;;
     esac
     if [ -n "$local_version" ]; then
         if [ "${CLASHCTL_LATEST_VERSION_FALLBACK_WARNED:-0}" -eq 0 ]; then
@@ -330,7 +337,13 @@ download_zip() {
         mihomo) _resolve_version VERSION_MIHOMO MetaCubeX/mihomo || return 1 ;;
         yq) _resolve_version VERSION_YQ mikefarah/yq || return 1 ;;
         subconverter) _resolve_version VERSION_SUBCONVERTER "$SUBCONVERTER_REPO" || return 1 ;;
-        ui) _resolve_version VERSION_UI Zephyruso/zashboard || return 1 ;;
+        ui)
+            case $(_ui_frontend) in
+            metacubexd) _resolve_version VERSION_METACUBEXD MetaCubeX/metacubexd || return 1 ;;
+            none) ;;
+            *) _resolve_version VERSION_UI Zephyruso/zashboard || return 1 ;;
+            esac
+            ;;
         *)
             _ui_error "未知依赖组件：$item"
             return 1
@@ -375,8 +388,7 @@ download_zip() {
         ;;
     esac
 
-    # UI 为纯静态资源，与架构无关
-    local url_ui="https://github.com/Zephyruso/zashboard/releases/download/${VERSION_UI}/dist.zip"
+    # UI 为纯静态资源，与架构无关；前端由 CLASHCTL_UI_FRONTEND 选择
     local url target label version_token version_source_var
 
     for item in "$@"; do
@@ -404,10 +416,24 @@ download_zip() {
             label="subconverter ${VERSION_SUBCONVERTER}"
             ;;
         ui)
-            url=$url_ui
-            version_token=$(_cache_token "$VERSION_UI")
-            target="${ZIP_BASE_DIR}/dist-${version_token}.zip"
-            label="zashboard ${VERSION_UI}"
+            case $(_ui_frontend) in
+            metacubexd)
+                url="https://github.com/MetaCubeX/metacubexd/releases/download/${VERSION_METACUBEXD}/compressed-dist.tgz"
+                version_token=$(_cache_token "$VERSION_METACUBEXD")
+                target="${ZIP_BASE_DIR}/metacubexd-${version_token}.tgz"
+                label="metacubexd ${VERSION_METACUBEXD}"
+                ;;
+            none)
+                _ui_error 'Web 前端已关闭（CLASHCTL_UI_FRONTEND=none）'
+                return 1
+                ;;
+            *)
+                url="https://github.com/Zephyruso/zashboard/releases/download/${VERSION_UI}/dist.zip"
+                version_token=$(_cache_token "$VERSION_UI")
+                target="${ZIP_BASE_DIR}/dist-${version_token}.zip"
+                label="zashboard ${VERSION_UI}"
+                ;;
+            esac
             ;;
         esac
 
@@ -548,6 +574,16 @@ _component_prepare_ui() {
         /usr/bin/install -d -m 0700 -- "$extract_dir" || return 1
         _component_extract_tar "$archive" "$extract_dir" || return 1
     fi
+    # metacubexd 等归档把前端文件直接放在根目录，统一收拢到 dist/ 子目录。
+    if [ ! -d "$candidate" ] || [ ! -f "$candidate/index.html" ]; then
+        [ -f "$extract_dir/index.html" ] && [ ! -L "$extract_dir/index.html" ] || return 2
+        /usr/bin/install -d -m 0700 -- "$candidate" || return 1
+        for path in "$extract_dir"/* "$extract_dir"/.[!.]*; do
+            [ -e "$path" ] || [ -L "$path" ] || continue
+            case ${path##*/} in dist) continue ;; esac
+            /bin/mv -f -- "$path" "$candidate/" || return 1
+        done
+    fi
     unexpected=$(find "$extract_dir" -mindepth 1 -maxdepth 1 \
         ! -name dist -print -quit 2>/dev/null) || return 1
     [ -z "$unexpected" ] && [ -d "$candidate" ] && [ ! -L "$candidate" ] || return 2
@@ -676,6 +712,64 @@ unzip_zip() {
         return 1
     }
     _ui_ok "运行组件已安装"
+}
+
+# 地理数据库文件校验：非空、体量合理、非 HTML，mmdb 还需带 MaxMind 标记。
+_geodata_file_valid() {
+    local file=$1 kind=$2 size
+
+    [ -f "$file" ] && [ ! -L "$file" ] && [ -s "$file" ] || return 1
+    size=$(stat -c %s -- "$file" 2>/dev/null) || return 1
+    [ "$size" -ge 65536 ] || return 1
+    LC_ALL=C grep -qiE '<[[:space:]]*(!doctype|html|head|body)' "$file" && return 1
+    [ "$kind" != mmdb ] || LC_ALL=C grep -qa 'MaxMind.com' "$file"
+}
+
+# 下载单个地理数据库文件；沿用依赖下载的代理前缀与超时，原子替换目标文件。
+_geodata_download() {
+    local label=$1 url=$2 target=$3 kind=$4 part
+    part="${target}.part"
+
+    if _geodata_file_valid "$target" "$kind"; then
+        _ui_ok "$label 已就绪"
+        return 0
+    fi
+    command rm -f -- "$part" || return 1
+    _ui_info "下载 $label"
+    _ui_detail "下载地址" "$(gh_proxy_url "$url")"
+    if ! curl --show-error --fail --location \
+        --max-time "${CLASHCTL_DOWNLOAD_TIMEOUT:-60}" --retry 1 \
+        --output "$part" --url "$(gh_proxy_url "$url")"; then
+        _ui_error "下载失败：$label"
+        command rm -f -- "$part"
+        return 1
+    fi
+    if ! _geodata_file_valid "$part" "$kind"; then
+        _ui_error "下载文件校验失败：$label"
+        command rm -f -- "$part"
+        return 1
+    fi
+    /bin/mv -f -- "$part" "$target" || {
+        _ui_error "无法写入：$target"
+        return 1
+    }
+    return 0
+}
+
+# 从官方 meta-rules-dat 安装 GeoIP / GeoSite 数据库到内核工作目录（resources/）。
+install_geodata() {
+    local dir=$CLASH_RESOURCES_DIR
+
+    _managed_directory_prepare "$dir" 0755 || {
+        _ui_error '资源目录无法安全使用'
+        _ui_detail '目录' "$dir"
+        return 1
+    }
+    _geodata_download 'GeoIP 数据库（country.mmdb）' \
+        "$GEODATA_MMDB_URL" "$dir/Country.mmdb" mmdb || return 1
+    _geodata_download 'GeoSite 数据库（geosite.dat）' \
+        "$GEODATA_SITE_URL" "$dir/geosite.dat" geosite || return 1
+    _ui_ok '地理数据库已就绪'
 }
 
 apply_rc() {

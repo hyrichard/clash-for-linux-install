@@ -89,7 +89,7 @@ _valid_config() {
   [[ ! -e "$config" || "$(wc -l <"$config")" -lt 1 ]] && return 1
 
   local test_log
-  # 校验须与服务同工作目录（resources/ 内含随仓库分发的 geodata）：
+  # 校验须与服务同工作目录（resources/ 内含安装期从官方下载的 geodata）：
   # 配置已迁到 data/，若用 -d "$(dirname config)" 内核会在校验期现下载 geodata。
   test_log=$("$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$config" -t 2>&1) || {
     printf '%s\n' "$test_log" >&2
