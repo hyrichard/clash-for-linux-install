@@ -161,11 +161,30 @@ _managed_directory_is_safe() {
         [ $((8#$mode & 0022)) -eq 0 ]
 }
 
+# 权限不符时的收紧：源码复制会带上调用方 umask（Ubuntu 默认 002 → 目录组可写）。
+# 只要还是安装目录内、属主为自己的真实目录，收紧到请求的模式即可，不必让安装失败。
+_managed_directory_tighten() {
+    local path=$1 mode=$2 resolved home
+
+    [ -n "${CLASHCTL_HOME:-}" ] || return 1
+    [ -d "$path" ] && [ ! -L "$path" ] || return 1
+    [ "$(stat -c %u -- "$path" 2>/dev/null)" = "$(id -u)" ] || return 1
+    resolved=$(readlink -m -- "$path") || return 1
+    home=$(readlink -m -- "$CLASHCTL_HOME") || return 1
+    case $resolved in
+    "$home"/*) ;;
+    *) return 1 ;;
+    esac
+    chmod "$mode" -- "$path" || return 1
+    _managed_directory_is_safe "$path"
+}
+
 _managed_directory_prepare() {
     local path=$1 mode=${2:-0755}
 
     if [ -e "$path" ] || [ -L "$path" ]; then
-        _managed_directory_is_safe "$path"
+        _managed_directory_is_safe "$path" && return 0
+        _managed_directory_tighten "$path" "$mode"
         return
     fi
     /usr/bin/install -d -m "$mode" -- "$path" || return 1

@@ -229,6 +229,40 @@ assert_eq 2 "$rc" 'symlink cache discard rejection status'
 [ -L "$linked_cache" ] || fail 'symlink cache discard removed the managed link'
 assert_eq outside-cache "$(<"$outside_cache")" 'symlink cache discard target preservation'
 
+# ── 托管目录权限：安装目录内自有目录的组可写权限应收紧，而不是让安装失败 ──
+# 源码复制会带入调用方 umask（Ubuntu 默认 002），resources/ 常因此变成 0775。
+tighten_home="$WORK_DIR/tighten"
+tighten_dir="$tighten_home/resources"
+mkdir -p -- "$tighten_dir"
+chmod 0775 -- "$tighten_dir"
+(
+    CLASHCTL_HOME=$tighten_home
+    _managed_directory_prepare "$tighten_dir" 0755
+) || fail 'own group-writable directory was rejected instead of tightened'
+assert_mode 755 "$tighten_dir" 'own directory tightened to the requested mode'
+
+# 安装目录外：拒绝且不动权限
+outside_dir="$WORK_DIR/outside/res"
+mkdir -p -- "$outside_dir"
+chmod 0775 -- "$outside_dir"
+rc=0
+(
+    CLASHCTL_HOME=$tighten_home
+    _managed_directory_prepare "$outside_dir" 0755
+) || rc=$?
+assert_eq 1 "$rc" 'directory outside the installation home is rejected'
+assert_mode 775 "$outside_dir" 'rejected directory keeps its mode'
+
+# 软链接：拒绝，不跟随
+ln -s -- "$tighten_dir" "$tighten_home/link"
+rc=0
+(
+    CLASHCTL_HOME=$tighten_home
+    _managed_directory_prepare "$tighten_home/link" 0755
+) || rc=$?
+assert_eq 1 "$rc" 'symlinked directory is rejected'
+assert_mode 755 "$tighten_dir" 'rejected symlink leaves its target mode alone'
+
 if [ "$(id -u)" -eq 0 ]; then
     foreign_cache="$ARCHIVE_DIR/foreign-cache.tar.gz"
     printf 'foreign-cache\n' >"$foreign_cache"
