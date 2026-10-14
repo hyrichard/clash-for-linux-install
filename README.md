@@ -52,11 +52,14 @@ curl -fsSL "${GH_PROXY}https://raw.githubusercontent.com/nelvko/clash-for-linux-
 ./fetch-packages.sh                       # 默认 amd64 + zashboard；-a arm64 指定架构，-h 查看全部选项
 
 # 拷贝到目标机器后：命中预置包直接使用，缺失的才联网下载
-./install.sh --package-dir /path/to/offline-packages
+./install.sh --local --package-dir /path/to/offline-packages
 ```
 
 预置包覆盖内核（mihomo/clash）、`yq`、订阅转换器、Web 前端（zashboard/metacubexd）与地理数据库
 （`country.mmdb`/`geosite.dat`）。目录也可长期写在 `.env` 的 `CLASHCTL_PACKAGE_DIR` 中。
+
+`--local` 表示用当前目录的源码安装。不加时安装器会从仓库分支拉取源码，那份代码若还不含预置包
+逻辑，`--package-dir` 就会形同虚设（包照样联网下载）。
 
 ## 🚀 快速上手
 

@@ -9,8 +9,9 @@
 #   ./fetch-packages.sh -p https://ghfast.top        # 走 GitHub 加速前缀
 #   ./fetch-packages.sh --latest                     # 跟随各仓库最新版本（默认用内置钉版）
 #
-# 下载完成后拷到目标机器：
-#   ./install.sh --package-dir /path/to/offline-packages
+# 下载完成后拷到目标机器（--local 用本地源码安装；不加则安装器会拉取仓库分支的源码，
+# 那份代码里没有预置包逻辑，预置包不会被使用）：
+#   ./install.sh --local --package-dir /path/to/offline-packages
 #
 # 命名规则与 scripts/preflight.sh 的预置包候选名保持一致：
 #   内核   mihomo-linux-<arch>[-<level>]-<tag>.gz / clash-linux-<arch>-2023.08.17.gz
@@ -367,5 +368,5 @@ fi
 
 say ''
 say "预置包已就绪：$OUT_DIR"
-say '安装时指定该目录即可离线复用：'
-say "    ./install.sh --package-dir $(cd -- "$OUT_DIR" && pwd)"
+say '安装时指定该目录即可离线复用（--local 用本地源码，否则安装器会拉取远端分支源码）：'
+say "    ./install.sh --local --package-dir $(cd -- "$OUT_DIR" && pwd)"
