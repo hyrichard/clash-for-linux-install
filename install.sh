@@ -675,6 +675,14 @@ _install_initialize() {
     export CLASHCTL_KERNEL="$kernel" CLASHCTL_UPDATE_BRANCH="$branch" GH_PROXY="$proxy"
     # 预置包目录：本次参数优先；未指定时沿用 .env 中的值。
     [ -z "$package_dir" ] || export CLASHCTL_PACKAGE_DIR="$package_dir"
+    # 预置包由 scripts/lib/common.sh 的 _package_lookup 提供：源码里没有它，
+    # --package-dir 会被静默忽略、依赖照旧联网下载，这里直接拦下并给出补救办法。
+    if [ -n "${CLASHCTL_PACKAGE_DIR:-}" ] && ! typeset -f _package_lookup >/dev/null 2>&1; then
+        _ui_error '当前源码不支持预置包目录，依赖会改为联网下载'
+        _ui_detail '源码' "$CLASHCTL_SRC"
+        _ui_detail '处理' '加 --local 用本地源码安装，或改用包含该功能的分支'
+        return 1
+    fi
     # shellcheck disable=SC2034  # preflight 中的组件安装与服务定义共用此路径。
     BIN_KERNEL=$(bin_kernel_path) || return 1
     operation_lock_acquire || return 1

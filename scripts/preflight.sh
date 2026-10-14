@@ -104,7 +104,7 @@ _resolve_version() {
         printf -v "$varname" '%s' "$tag"
         printf -v "${varname}_SOURCE" '%s' '最新版本'
         if ! typeset -f _install_ui_output >/dev/null 2>&1 || [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
-            _ui_detail "$repo" "$tag（最新版本）"
+            _ui_detail "$repo" "${tag}（最新版本）"
         fi
         return 0
     fi
@@ -124,7 +124,7 @@ _resolve_version() {
         printf -v "$varname" '%s' "$local_version"
         printf -v "${varname}_SOURCE" '%s' '内置版本'
         if ! typeset -f _install_ui_output >/dev/null 2>&1 || [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
-            _ui_detail "$repo" "$local_version（内置钉版）"
+            _ui_detail "$repo" "${local_version}（内置钉版）"
         fi
         return 0
     fi
@@ -355,8 +355,6 @@ download_zip() {
         yq) _resolve_version VERSION_YQ mikefarah/yq || return 1 ;;
         subconverter) _resolve_version VERSION_SUBCONVERTER "$SUBCONVERTER_REPO" || return 1 ;;
         ui)
-            # 通用预置名：任何前端的归档都可命名为 ui.zip/ui.tgz 等，由布局自动归一化
-            extras=("ui.zip" "ui.tgz" "ui-*.zip" "ui-*.tgz")
             case $(_ui_frontend) in
             metacubexd) _resolve_version VERSION_METACUBEXD MetaCubeX/metacubexd || return 1 ;;
             none) ;;
@@ -369,6 +367,9 @@ download_zip() {
             ;;
         esac
     done
+
+    # 只解析被请求组件的版本；未请求的置空，避免调用方开启 set -u 时展开报错。
+    VERSION_MIHOMO=${VERSION_MIHOMO:-} VERSION_YQ=${VERSION_YQ:-} VERSION_SUBCONVERTER=${VERSION_SUBCONVERTER:-}
 
     case "$arch" in
     x86_64)
@@ -442,6 +443,9 @@ download_zip() {
             label="subconverter ${VERSION_SUBCONVERTER}"
             ;;
         ui)
+            # 通用预置名：任何前端的归档都可命名为 ui.zip/ui.tgz 等，由布局自动归一化。
+            # 必须写在挑选 url/target 的这一轮里，_download_archive 只拿本轮的 extras。
+            extras=("ui.zip" "ui.tgz" "ui-*.zip" "ui-*.tgz")
             case $(_ui_frontend) in
             metacubexd)
                 url="https://github.com/MetaCubeX/metacubexd/releases/download/${VERSION_METACUBEXD}/compressed-dist.tgz"
