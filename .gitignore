@@ -23,6 +23,9 @@ resources/rules/
 # 依赖包缓存（安装期按需下载，不入库）
 archives/*
 
+# 一键下载脚本产出的离线预置包目录
+offline-packages/
+
 !.gitkeep
 
 # 内核运行时产物（写入 -d 工作目录）

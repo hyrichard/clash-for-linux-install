@@ -82,6 +82,30 @@ _ui_frontend() {
     esac
 }
 
+# 预置包目录：按候选名（含通配）命中第一个存在的普通文件即输出其路径，否则返回 1。
+# 用于「有预置包就用、没有才下载」；CLASHCTL_PACKAGE_DIR 为空视为未启用。
+_package_lookup() {
+    local dir=${CLASHCTL_PACKAGE_DIR:-} name match
+    [ -n "$dir" ] && [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
+    for name in "$@"; do
+        [ -n "$name" ] || continue
+        if [ -f "$dir/$name" ] && [ ! -L "$dir/$name" ]; then
+            printf '%s\n' "$dir/$name"
+            return 0
+        fi
+        case $name in
+        *[*?[]*)
+            for match in "$dir"/$name; do
+                [ -f "$match" ] && [ ! -L "$match" ] || continue
+                printf '%s\n' "$match"
+                return 0
+            done
+            ;;
+        esac
+    done
+    return 1
+}
+
 # 订阅入口在 Bash 中执行；终端启用行编辑，管道保留普通读取方式。
 _read_subscription_url() {
     local _subscription_input=''

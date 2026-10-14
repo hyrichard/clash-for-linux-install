@@ -219,7 +219,8 @@ _cache_token() {
 
 _download_archive() {
     local label=$1 url=$2 target=$3
-    local download_url download_rc=0
+    shift 3
+    local download_url download_rc=0 preset
     download_url=$(gh_proxy_url "$url")
     local part="${target}.part"
     local -a curl_args=(
@@ -229,6 +230,22 @@ _download_archive() {
         --max-time "$CLASHCTL_DOWNLOAD_TIMEOUT"
         --retry 1
     )
+
+    # 预置包目录优先：命中有效文件即复制落盘，不联网；否则继续走缓存/下载。
+    if preset=$(_package_lookup "$(basename -- "$url")" "$(basename -- "$target")" "$@"); then
+        if _archive_is_valid "$preset"; then
+            command rm -f -- "$part" || return 1
+            if cp -f -- "$preset" "$part" && _archive_is_valid "$part" &&
+                /bin/mv -f -- "$part" "$target"; then
+                _ui_ok "$label 使用预置包"
+                _ui_detail '预置' "$preset"
+                return 0
+            fi
+            _ui_warn "预置包复制失败，改为下载：$label"
+        else
+            _ui_warn "忽略无效的预置包：$preset"
+        fi
+    fi
 
     if _archive_is_valid "$target"; then
         _ui_ok "$label 使用本地安装包"
@@ -323,7 +340,7 @@ download_zip() {
         return 1
     }
     local url_clash url_mihomo url_yq url_subconverter
-    local arch flags level
+    local arch flags level arch_name
     arch=$(uname -m) || {
         _ui_error "无法检测系统架构"
         return 1
@@ -338,6 +355,8 @@ download_zip() {
         yq) _resolve_version VERSION_YQ mikefarah/yq || return 1 ;;
         subconverter) _resolve_version VERSION_SUBCONVERTER "$SUBCONVERTER_REPO" || return 1 ;;
         ui)
+            # 通用预置名：任何前端的归档都可命名为 ui.zip/ui.tgz 等，由布局自动归一化
+            extras=("ui.zip" "ui.tgz" "ui-*.zip" "ui-*.tgz")
             case $(_ui_frontend) in
             metacubexd) _resolve_version VERSION_METACUBEXD MetaCubeX/metacubexd || return 1 ;;
             none) ;;
@@ -353,6 +372,7 @@ download_zip() {
 
     case "$arch" in
     x86_64)
+        arch_name=amd64
         flags=$(grep -m1 '^flags' /proc/cpuinfo)
         level=v1
         grep -qw sse4_2 <<<"$flags" && grep -qw popcnt <<<"$flags" && level=v2
@@ -364,18 +384,21 @@ download_zip() {
         url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux64.tar.gz
         ;;
     *86*)
+        arch_name=386
         url_clash=https://github.com/nelvko/clash-for-linux-install/releases/download/clash/clash-linux-386-2023.08.17.gz
         url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-386-${VERSION_MIHOMO}.gz
         url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_386.tar.gz
         url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux32.tar.gz
         ;;
     armv*)
+        arch_name=armv7
         url_clash=https://github.com/nelvko/clash-for-linux-install/releases/download/clash/clash-linux-armv5-2023.08.17.gz
         url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-armv7-${VERSION_MIHOMO}.gz
         url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_arm.tar.gz
         url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${VERSION_SUBCONVERTER}/subconverter_armv7.tar.gz
         ;;
     aarch64)
+        arch_name=arm64
         url_clash=https://github.com/nelvko/clash-for-linux-install/releases/download/clash/clash-linux-arm64-2023.08.17.gz
         url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-arm64-${VERSION_MIHOMO}.gz
         url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_arm64.tar.gz
@@ -392,16 +415,19 @@ download_zip() {
     local url target label version_token version_source_var
 
     for item in "$@"; do
+        local -a extras=()
         case $item in
         clash)
             url=$url_clash
             target="${ZIP_BASE_DIR}/$(basename -- "$url")"
             label='clash 2023.08.17'
+            extras=("clash-linux-${arch_name}-*.gz")
             ;;
         mihomo)
             url=$url_mihomo
             target="${ZIP_BASE_DIR}/$(basename -- "$url")"
             label="mihomo ${VERSION_MIHOMO}"
+            extras=("mihomo-linux-${arch_name}-*.gz")
             ;;
         yq)
             url=$url_yq
@@ -442,7 +468,7 @@ download_zip() {
             version_source_var="VERSION_${item^^}_SOURCE"
             [ -z "${!version_source_var:-}" ] || label+="（${!version_source_var}）"
         fi
-        _download_archive "$label" "$url" "$target" || return 1
+        _download_archive "$label" "$url" "$target" "${extras[@]}" || return 1
         case $item in
         clash | mihomo) ZIP_KERNEL=$target ;;
         yq) ZIP_YQ=$target ;;
@@ -727,12 +753,27 @@ _geodata_file_valid() {
 
 # 下载单个地理数据库文件；沿用依赖下载的代理前缀与超时，原子替换目标文件。
 _geodata_download() {
-    local label=$1 url=$2 target=$3 kind=$4 part
+    local label=$1 url=$2 target=$3 kind=$4 part preset
     part="${target}.part"
 
     if _geodata_file_valid "$target" "$kind"; then
         _ui_ok "$label 已就绪"
         return 0
+    fi
+    # 预置包目录优先：命中有效文件即复制落盘，不联网。
+    if preset=$(_package_lookup "$(basename -- "$url")" "$(basename -- "$target")"); then
+        if _geodata_file_valid "$preset" "$kind"; then
+            command rm -f -- "$part" || return 1
+            if cp -f -- "$preset" "$part" && _geodata_file_valid "$part" "$kind" &&
+                /bin/mv -f -- "$part" "$target"; then
+                _ui_ok "$label 使用预置包"
+                _ui_detail '预置' "$preset"
+                return 0
+            fi
+            _ui_warn "预置包复制失败，改为下载：$label"
+        else
+            _ui_warn "忽略无效的预置包：$preset"
+        fi
     fi
     command rm -f -- "$part" || return 1
     _ui_info "下载 $label"

@@ -670,9 +670,11 @@ _install_initialize() {
     [ "${4:-}" != x ] || CLASHCTL_DOWNLOAD_TIMEOUT=$5
     # 参数在 main 中保存，不受 preflight 加载已有 .env 的影响。
     local kernel=${1:-${CLASHCTL_KERNEL:-mihomo}} branch=${2:-${CLASHCTL_UPDATE_BRANCH:-master}}
-    local proxy=${3:-} subscription=${7:-} rc secret shell_backup=''
+    local proxy=${3:-} subscription=${7:-} package_dir=${8:-} rc secret shell_backup=''
     export -n subscription secret
     export CLASHCTL_KERNEL="$kernel" CLASHCTL_UPDATE_BRANCH="$branch" GH_PROXY="$proxy"
+    # 预置包目录：本次参数优先；未指定时沿用 .env 中的值。
+    [ -z "$package_dir" ] || export CLASHCTL_PACKAGE_DIR="$package_dir"
     # shellcheck disable=SC2034  # preflight 中的组件安装与服务定义共用此路径。
     BIN_KERNEL=$(bin_kernel_path) || return 1
     operation_lock_acquire || return 1
@@ -699,6 +701,7 @@ _install_initialize() {
     _set_env CLASHCTL_KERNEL "$kernel" || return 1
     _set_env CLASHCTL_UPDATE_BRANCH "$branch" || return 1
     _set_env GH_PROXY "$proxy" || return 1
+    _set_env CLASHCTL_PACKAGE_DIR "${CLASHCTL_PACKAGE_DIR:-}" || return 1
     _set_env CLASHCTL_DOWNLOAD_TIMEOUT "$CLASHCTL_DOWNLOAD_TIMEOUT" || return 1
     # shellcheck disable=SC2154  # detect_service_manager 设置
     _set_env INIT_TYPE "$service_manager" || return 1
@@ -778,6 +781,7 @@ main() (
     [ -z "${CLASHCTL_HOME:-}" ] || home_source=CLASHCTL_HOME
     local branch=${CLASHCTL_UPDATE_BRANCH:-} kernel='' subscription=''
     local proxy=${GH_PROXY:-} proxy_set=${GH_PROXY+x} stage='' arg method
+    local package_dir=${CLASHCTL_PACKAGE_DIR:-}
     local requested_timeout=${CLASHCTL_DOWNLOAD_TIMEOUT-} timeout_set=${CLASHCTL_DOWNLOAD_TIMEOUT+x}
     local local_source=false script_dir='' existing_kind='' legacy_home='' legacy_kernel='' backup=''
     local legacy_recovery_required=false legacy_shell_backup=''
@@ -837,6 +841,12 @@ main() (
             proxy_set=x
             shift
             ;;
+        --package-dir=*) package_dir=${arg#--package-dir=} ;;
+        --package-dir)
+            [ "$#" -gt 0 ] || { printf '%s\n' '--package-dir 需要一个目录' >&2; return 1; }
+            package_dir=$1
+            shift
+            ;;
         -h | --help)
             cat <<'HELP'
 安装或更新 clashctl
@@ -853,6 +863,8 @@ main() (
   --branch <分支>         源码及后续更新分支（新安装默认 master）
                           配合 --local 时，仅设置后续更新分支
   --gh-proxy <URL>        GitHub 下载代理前缀；--gh-proxy= 表示直连
+  --package-dir <目录>    预置包目录：命中则直接使用，缺失才下载
+                          （内核/地理数据库/前端/yq/subconverter）
   --verbose               显示源码下载详情、完整下载地址和缓存路径
   -h, --help              显示帮助
 
@@ -903,6 +915,14 @@ HELP
         printf '不能使用根目录或用户主目录作为安装目录\n' >&2
         return 1
     fi
+    if [ -n "$package_dir" ]; then
+        package_dir=$(readlink -m -- "$package_dir") || return 1
+        [ -d "$package_dir" ] || {
+            printf '预置包目录不存在：%s\n' "$package_dir" >&2
+            return 1
+        }
+    fi
+    export CLASHCTL_PACKAGE_DIR="$package_dir"
     if [ "$local_source" = true ]; then
         case "$install_home/" in
         "$script_dir/"*) printf '本地安装目录不能位于源码目录内，请通过 --home 指定其他目录\n' >&2; return 1 ;;
@@ -1119,7 +1139,7 @@ HELP
     export CLASHCTL_HOME="$install_home" CLASHCTL_SRC="$install_home" CLASHCTL_KERNEL="$kernel"
     export CLASHCTL_UPDATE_BRANCH="$branch" GH_PROXY="$proxy"
     if ! { (umask 077; : >"$install_home/.clashctl-incomplete") &&
-        _install_initialize "$kernel" "$branch" "$proxy" "$timeout_set" "$requested_timeout" "$backup" "$subscription"; }; then
+        _install_initialize "$kernel" "$branch" "$proxy" "$timeout_set" "$requested_timeout" "$backup" "$subscription" "$package_dir"; }; then
         if [ -n "$backup" ]; then
             _install_legacy_rollback "$legacy_home" "$backup" "$install_home" "$legacy_kernel" || return 1
         else

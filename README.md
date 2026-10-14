@@ -43,6 +43,21 @@ curl -fsSL "${GH_PROXY}https://raw.githubusercontent.com/nelvko/clash-for-linux-
 - `GH_PROXY`：[GitHub 下载加速代理](https://gh-proxy.org/)，失效时可更换[其他可用地址](https://ghproxy.link/)。
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 
+### 离线安装（预置包）
+
+先在任意联网机器上把依赖包一次性下载好，再拷到目标机器离线安装：
+
+```bash
+# 联网机器：生成预置包目录（默认 ./offline-packages）
+./fetch-packages.sh                       # 默认 amd64 + zashboard；-a arm64 指定架构，-h 查看全部选项
+
+# 拷贝到目标机器后：命中预置包直接使用，缺失的才联网下载
+./install.sh --package-dir /path/to/offline-packages
+```
+
+预置包覆盖内核（mihomo/clash）、`yq`、订阅转换器、Web 前端（zashboard/metacubexd）与地理数据库
+（`country.mmdb`/`geosite.dat`）。目录也可长期写在 `.env` 的 `CLASHCTL_PACKAGE_DIR` 中。
+
 ## 🚀 快速上手
 
 添加并启用订阅（安装时已配置可跳过）：
