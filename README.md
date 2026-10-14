@@ -76,7 +76,7 @@ curl -fsSL "${GH_PROXY}https://raw.githubusercontent.com/nelvko/clash-for-linux-
 
 ```bash
 # 联网机器：生成预置包目录（默认 ./offline-packages）
-./fetch-packages.sh                       # 默认 amd64 + zashboard；-a arm64 指定架构，-h 查看全部选项
+./fetch-packages.sh                       # 默认 amd64 + 两个前端；-a arm64 指定架构，-h 查看全部选项
 
 # 拷贝到目标机器后：命中预置包直接使用，缺失的才联网下载
 ./install.sh --local --package-dir /path/to/offline-packages

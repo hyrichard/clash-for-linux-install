@@ -445,7 +445,12 @@ download_zip() {
         ui)
             # 通用预置名：任何前端的归档都可命名为 ui.zip/ui.tgz 等，由布局自动归一化。
             # 必须写在挑选 url/target 的这一轮里，_download_archive 只拿本轮的 extras。
-            extras=("ui.zip" "ui.tgz" "ui-*.zip" "ui-*.tgz")
+            # 命中即按目标名的扩展名校验，所以先排当前前端的封装格式：预置目录里两个都放着
+            # 时（fetch-packages.sh 默认就都下），才不会先命中格式不符的那个再退回下载。
+            case $(_ui_frontend) in
+            metacubexd) extras=("ui.tgz" "ui.zip" "ui-*.tgz" "ui-*.zip") ;;
+            *) extras=("ui.zip" "ui.tgz" "ui-*.zip" "ui-*.tgz") ;;
+            esac
             case $(_ui_frontend) in
             metacubexd)
                 url="https://github.com/MetaCubeX/metacubexd/releases/download/${VERSION_METACUBEXD}/compressed-dist.tgz"

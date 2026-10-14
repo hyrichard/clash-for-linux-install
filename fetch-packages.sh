@@ -4,8 +4,8 @@
 #
 # 产物直接作为 install.sh 的预置包目录使用：命中即用、缺失才联网下载。
 #
-#   ./fetch-packages.sh                              # 当前架构：mihomo + yq + zashboard + 地理数据库 + subconverter
-#   ./fetch-packages.sh -a arm64 -u metacubexd       # 指定架构与前端
+#   ./fetch-packages.sh                              # 当前架构：mihomo + yq + 两个前端 + 地理数据库 + subconverter
+#   ./fetch-packages.sh -a arm64 -u zashboard        # 指定架构，只取一个前端
 #   ./fetch-packages.sh -p https://ghfast.top        # 走 GitHub 加速前缀
 #   ./fetch-packages.sh --latest                     # 跟随各仓库最新版本（默认用内置钉版）
 #
@@ -17,7 +17,7 @@
 #   内核   mihomo-linux-<arch>[-<level>]-<tag>.gz / clash-linux-<arch>-2023.08.17.gz
 #   yq     yq_linux_<arch>.tar.gz
 #   转换器 subconverter_<arch>.tar.gz
-#   前端   ui.zip（zashboard）/ ui.tgz（metacubexd）
+#   前端   ui.zip（zashboard）、ui.tgz（metacubexd）——默认两个都下，切换前端都能命中
 #   数据库 country.mmdb、geosite.dat
 set -u
 
@@ -27,7 +27,7 @@ OUT_DIR=./offline-packages
 ARCH=''
 ARCH_GIVEN=0
 KERNEL=mihomo
-UI=zashboard
+UI=both
 LEVEL=''
 PROXY=${GH_PROXY:-}
 TIMEOUT=${CLASHCTL_DOWNLOAD_TIMEOUT:-120}
@@ -65,7 +65,7 @@ usage() {
   -o, --output <目录>     输出目录（默认 ./offline-packages）
   -a, --arch <架构>       amd64 | 386 | armv7 | arm64（默认按本机检测）
   -k, --kernel <内核>     mihomo（默认）| clash
-  -u, --ui <前端>         zashboard（默认）| metacubexd | none
+  -u, --ui <前端>         both（默认，两个都下）| zashboard | metacubexd | none
   -l, --level <等级>      amd64 专用：v1 | v2 | v3（默认按本机 CPU 检测，否则 v1）
   -p, --proxy <前缀>      GitHub 加速前缀，如 https://ghfast.top（默认读 GH_PROXY）
       --latest            跟随各仓库最新版本（默认使用内置钉版，便于离线复现）
@@ -269,8 +269,8 @@ mihomo | clash) ;;
 *) die "内核只能是 mihomo 或 clash（当前：${KERNEL}）" ;;
 esac
 case $UI in
-zashboard | metacubexd | none) ;;
-*) die "前端只能是 zashboard、metacubexd 或 none（当前：${UI}）" ;;
+both | zashboard | metacubexd | none) ;;
+*) die "前端只能是 both、zashboard、metacubexd 或 none（当前：${UI}）" ;;
 esac
 if [ "$ARCH" = amd64 ]; then
     [ -n "$LEVEL" ] || LEVEL=$(detect_level)
@@ -309,8 +309,15 @@ esac
 MIHOMO_TAG=$(resolve_version MetaCubeX/mihomo "$PIN_MIHOMO")
 YQ_TAG=$(resolve_version mikefarah/yq "$PIN_YQ")
 SUB_TAG=$(resolve_version "$SUBCONVERTER_REPO" "$PIN_SUBCONVERTER")
-UI_TAG=$(resolve_version Zephyruso/zashboard "$PIN_UI")
-META_TAG=$(resolve_version MetaCubeX/metacubexd "$PIN_METACUBEXD")
+# 只为要下载的前端查询版本，无谓的 API 请求能省则省。
+UI_TAG=''
+META_TAG=''
+case $UI in
+both | zashboard) UI_TAG=$(resolve_version Zephyruso/zashboard "$PIN_UI") ;;
+esac
+case $UI in
+both | metacubexd) META_TAG=$(resolve_version MetaCubeX/metacubexd "$PIN_METACUBEXD") ;;
+esac
 
 # 注意：不要把非 ASCII 字符紧跟在 ${VAR:+...} 内，macOS 自带 bash 3.2 会误判变量名。
 arch_display=$ARCH
@@ -341,16 +348,18 @@ if [ "$WITH_SUBCONVERTER" = 1 ]; then
 fi
 
 case $UI in
-zashboard)
+both | zashboard)
     fetch "https://github.com/Zephyruso/zashboard/releases/download/$UI_TAG/dist.zip" \
         "$OUT_DIR/ui.zip" "前端 zashboard $UI_TAG"
     ;;
-metacubexd)
+esac
+case $UI in
+both | metacubexd)
     fetch "https://github.com/MetaCubeX/metacubexd/releases/download/$META_TAG/compressed-dist.tgz" \
         "$OUT_DIR/ui.tgz" "前端 metacubexd $META_TAG"
     ;;
-none) say '前端：跳过（none）' ;;
 esac
+[ "$UI" != none ] || say '前端：跳过（none）'
 
 fetch "$GEODATA_BASE/country.mmdb" "$OUT_DIR/country.mmdb" '地理数据库 country.mmdb'
 fetch "$GEODATA_BASE/geosite.dat" "$OUT_DIR/geosite.dat" '地理数据库 geosite.dat'

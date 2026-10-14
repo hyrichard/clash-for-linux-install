@@ -71,24 +71,35 @@ _component_prepare_ui "$ZIP_UI" "$stage" || exit 1
 PROBE
 chmod 0700 "$probe"
 
+# run_case <用例名> <前端> <应当命中的归档名> <预置目录内容 …>
 run_case() {
-    local frontend=$1 fixture=$2 maker=$3 case_dir="$WORK_DIR/$1" preset_dir="$WORK_DIR/preset-$1"
+    local label=$1 frontend=$2 expected=$3 fixture
+    shift 3
+    local case_dir="$WORK_DIR/$label" preset_dir="$WORK_DIR/preset-$label"
     mkdir -p -- "$case_dir" "$preset_dir"
-    "$maker" "$preset_dir/$fixture"
+    for fixture in "$@"; do
+        case $fixture in
+        ui.zip) make_zip "$preset_dir/ui.zip" ;;
+        ui.tgz) make_tgz "$preset_dir/ui.tgz" ;;
+        esac
+    done
     if ! output=$(bash "$probe" "$REPO_DIR" "$case_dir" "$frontend" "$preset_dir" 2>"$case_dir/stderr"); then
         cat "$case_dir/stderr" >&2
-        fail "$frontend probe failed"
+        fail "$label probe failed"
     fi
     resolved=$(printf '%s\n' "$output" | sed -n 's/^ARCHIVE=//p')
-    [ -n "$resolved" ] || fail "$frontend 未产出 ZIP_UI"
+    [ -n "$resolved" ] || fail "$label 未产出 ZIP_UI"
     if grep -qs 'releases/download' "$case_dir/curl"; then
         cat "$case_dir/curl" >&2
-        fail "$frontend 命中预置包后仍在下载"
+        fail "$label 命中预置包后仍在下载"
     fi
-    cmp -s -- "$resolved" "$preset_dir/$fixture" || fail "$frontend 未使用预置包内容：$resolved"
+    cmp -s -- "$resolved" "$preset_dir/$expected" || fail "$label 未使用预置包内容：$resolved"
 }
 
-run_case zashboard ui.zip make_zip
-run_case metacubexd ui.tgz make_tgz
+run_case zip-only zashboard ui.zip ui.zip
+run_case tgz-only metacubexd ui.tgz ui.tgz
+# fetch-packages.sh 默认两个前端都下：都放着时也必须各取所需，不能因先命中格式不符的那份而退回下载。
+run_case both-zashboard zashboard ui.zip ui.zip ui.tgz
+run_case both-metacubexd metacubexd ui.tgz ui.zip ui.tgz
 
 printf 'preset-packages: ok\n'
